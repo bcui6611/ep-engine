@@ -18,6 +18,7 @@ noinst_LTLIBRARIES = \
                      libkvstore.la \
                      libobjectregistry.la \
                      libcouch-kvstore.la \
+                     libkinetic-kvstore.la \
                      libdirutils.la
 
 fixup_stats_json:
@@ -143,17 +144,37 @@ endif
 
 libcouch_kvstore_la_CPPFLAGS = -I$(top_srcdir)/src/couch-kvstore $(AM_CPPFLAGS)
 
+libkinetic_kvstore_la_SOURCES = src/kvstore.hh
+
+if HAVE_LIBKINETIC
+libkinetic_kvstore_la_SOURCES += src/kinetic-kvstore/kinetic-kvstore.cc    \
+                                 src/kinetic-kvstore/kinetic-kvstore.hh    \
+                                 src/kinetic-kvstore/kinetic-stats.cc      \
+                                 src/kinetic-kvstore/kinetic-stats.hh      \
+                                 src/kinetic-kvstore/kinetic-notifier.cc   \
+                                 src/kinetic-kvstore/kinetic-notifier.hhx`
+
+libkinetic_kvstore_la_LIBADD = $(LTLIBKINETIC)
+else
+libkinetic_kvstore_la_SOURCES += src/kinetic-kvstore/kinetic-kvstore-dummy.hh \
+                                 src/kinetic-kvstore/kinetic-kvstore-dummy.cc
+endif
+
+libkinetic_kvstore_la_CPPFLAGS = -I$(top_srcdir)/src/kinetic-kvstore $(AM_CPPFLAGS)
+
 libconfiguration_la_SOURCES = src/generated_configuration.hh \
                               src/configuration.hh \
                               src/configuration.cc
 
 ep_la_LIBADD = libkvstore.la \
                libblackhole-kvstore.la libcouch-kvstore.la \
+               libkinetic-kvstore.la \
                libobjectregistry.la libconfiguration.la $(LTLIBEVENT)
 ep_la_DEPENDENCIES = libkvstore.la \
                libblackhole-kvstore.la	\
                libobjectregistry.la libconfiguration.la \
-               libcouch-kvstore.la
+               libcouch-kvstore.la \
+               libkinetic-kvstore.la
 ep_testsuite_la_LIBADD =libobjectregistry.la $(LTLIBEVENT)
 ep_testsuite_la_DEPENDENCIES = libobjectregistry.la
 

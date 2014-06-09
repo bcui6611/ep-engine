@@ -40,13 +40,14 @@
             }
         },
         "backend": {
-            "default": "couchdb",
+            "default": "kinetic",
             "dynamic": false,
             "type": "std::string",
             "validator": {
                 "enum": [
                     "blackhole",
-                    "couchdb"
+                    "couchdb",
+                    "kinetic"
                 ]
             }
         },

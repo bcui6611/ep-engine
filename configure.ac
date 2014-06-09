@@ -176,6 +176,8 @@ AS_IF([test "x$ac_cv_have_libcouchstore" = "xyes"],
 AC_SUBST(LTLIBCOUCHSTORE)
 AM_CONDITIONAL(HAVE_LIBCOUCHSTORE, [test "x$ac_cv_have_libcouchstore" = "xyes"])
 
+AM_CONDITIONAL(HAVE_LIBKINETIC, [test "1" = "1"])
+
 AC_CACHE_CHECK([for libevent >= 1.4], [ac_cv_have_libevent],
   [ saved_libs="$LIBS"
     LIBS="$LIBS -levent"
