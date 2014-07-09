@@ -42,16 +42,59 @@ enum {
 	KINETICSTORE_VBUCKET_STATE = 2000,
 };
 
+class KineticKVStoreStats {
+public:
+	KineticKVStoreStats()
+	{}
+public:
+	/*
+    // the number of docs committed
+    size_t docsCommitted;
+    // the number of open() calls
+    size_t numOpen;
+    // the number of close() calls
+    size_t numClose;
+    bool b1;
+    size_t numLoadedVb;
+
+    //stats tracking failures
+    size_t numGetFailure;
+    size_t numSetFailure;
+    size_t numDelFailure;
+    size_t numOpenFailure;
+    size_t numVbSetFailure;
+    size_t numCommitRetry;
+*/
+    Histogram<hrtime_t> readTimeHisto;
+    Histogram<size_t> readSizeHisto;
+    // How long it takes us to complete a write
+    Histogram<hrtime_t> writeTimeHisto;
+    // How big are our writes?
+    Histogram<size_t> writeSizeHisto;
+/*
+    // Time spent in delete() calls.
+    Histogram<hrtime_t> delTimeHisto;
+    // Time spent in kinetic drive commit
+    Histogram<hrtime_t> commitHisto;
+    // Time spent in kinetic drive commit retry
+    Histogram<hrtime_t> commitRetryHisto;
+    // Time spent in kinetic save documents
+    Histogram<hrtime_t> saveDocsHisto;
+    // Batch size of saveDocs calls
+    Histogram<size_t> batchSize;
+*/
+};
+
 /**
  * Stats and timings for kineticKVStore
  */
-class KineticKVStoreStats {
+class KineticKVStoreStats1 {
 
 public:
     /**
      * Default constructor
      */
-    KineticKVStoreStats() :
+    KineticKVStoreStats1() :
       docsCommitted(0), numOpen(0), numClose(0),
       numLoadedVb(0), numGetFailure(0), numSetFailure(0),
       numDelFailure(0), numOpenFailure(0), numVbSetFailure(0),
@@ -80,7 +123,7 @@ public:
         commitRetryHisto.reset();
         saveDocsHisto.reset();
         batchSize.reset();
-        //fsStats.reset();
+        fsStats.reset();
     }
 
     // the number of docs committed
@@ -162,16 +205,6 @@ public:
     }
 
     /**
-     * Get the revision number of the vbucket database file
-     * where the document is persisted
-     *
-     * @return revision number of the corresponding vbucket database file
-     */
-    uint64_t getRevNum(void) {
-        return fileRevNum;
-    }
-
-    /**
      * Get the callback instance for SET
      *
      * @return callback instance for SET
@@ -246,7 +279,6 @@ private :
     size_t valuelen;
     uint8_t meta[KINETICSTORE_METADATA_SIZE];
     uint16_t vbucketId;
-    uint64_t fileRevNum;
     std::string key;
     int64_t itemId;
     bool deleteItem;
@@ -483,10 +515,10 @@ public:
 
     /**
      * Resets kinetic stats
-     */
+
     void resetStats() {
         st.reset();
-    }
+    }*/
 
     void processTxnSizeChange(size_t txn_size) {
         (void) txn_size;
@@ -500,7 +532,7 @@ public:
 
     ENGINE_ERROR_CODE kineticErr2EngineErr(memcached_return_t errCode);
 
-    KineticKVStoreStats &getCKVStoreStat(void) { return st; }
+    //KineticKVStoreStats &getCKVStoreStat(void) { return st; }
 
 protected:
     void loadDB(shared_ptr<Callback<GetValue> > cb, bool keysOnly,
@@ -529,6 +561,9 @@ private:
     void commitCallback(KineticRequest **committedReqs, int numReqs,
     		            memcached_return_t errCode);
 private:
+    /* vbucket state cache*/
+    vbucket_map_t cachedVBStates;
+
     memcached_st *memc;
     memcached_server_st *memc_servers;
 
@@ -541,12 +576,12 @@ private:
     bool intransaction;
 
     /* all stats */
-    KineticKVStoreStats   st;
-    couch_file_ops statCollectingFileOps;
-    /* vbucket state cache*/
-    vbucket_map_t cachedVBStates;
+    KineticKVStoreStats   *st;
+
+    //couch_file_ops statCollectingFileOps;
+
     /* deleted docs in each file*/
-    std::map<uint16_t, size_t> cachedDeleteCount;
+    //std::map<uint16_t, size_t> cachedDeleteCount;
 };
 
 #endif /* KINETIC_KVSTORE_H */

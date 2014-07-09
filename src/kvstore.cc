@@ -26,6 +26,7 @@ KVStore *KVStoreFactory::create(EPStats &stats, Configuration &config,
 
     KVStore *ret = NULL;
     std::string backend = config.getBackend();
+    //std::string backend = "couchdb";
     if (backend.compare("couchdb") == 0) {
         ret = new CouchKVStore(stats, config, read_only);
     } else if (backend.compare("blackhole") == 0) {

@@ -24,11 +24,13 @@
 
 using namespace KineticKVStoreDirectoryUtilities;
 
+static const int SERVER_PORT = 12000;
 static const int MUTATION_FAILED = -1;
 static const int DOC_NOT_FOUND = 0;
 static const int MUTATION_SUCCESS = 1;
 
 static const int MAX_OPEN_DB_RETRY = 10;
+
 
 extern "C" {
     static std::string getStrError() {
@@ -41,11 +43,10 @@ extern "C" {
 }
 
 static bool isJSON(const value_t &value)
-{/*
+{
     const int len = value->length();
     const unsigned char *data = (unsigned char*) value->getData();
-    return checkUTF8JSON(data, len);*/
-	return false;
+    return checkUTF8JSON(data, len);
 }
 
 /*
@@ -97,23 +98,31 @@ static bool allDigit(std::string &input)
     return true;
 }
 
+static void k_loop() {
+   fprintf(stderr, "my kinetic pid = %d\n", getpid());
+   while (1);
+
+}
+
 KineticRequest::KineticRequest(const Item &it, uint64_t rev, KineticRequestCallback &cb, bool del) :
     value(it.getValue()), valuelen(it.getNBytes()),
-    vbucketId(it.getVBucketId()), fileRevNum(rev),
+    vbucketId(it.getVBucketId()),
     key(it.getKey()), deleteItem(del)
 {
-    bool isjson = false;
     uint64_t cas = htonll(it.getCas());
     uint32_t flags = it.getFlags();
     uint32_t exptime = it.getExptime();
     // Save time of deletion in expiry time field of deleted item's metadata.
     if (del) {
         exptime = ep_real_time();
+        callback.delCb = cb.delCb;
+    }
+    else {
+        callback.setCb = cb.setCb;
     }
     exptime = htonl(exptime);
 
     itemId = (it.getId() <= 0) ? 1 : 0;
-
     start = gethrtime();
 }
 
@@ -123,7 +132,10 @@ KineticKVStore::KineticKVStore(EPStats &stats, Configuration &config, bool read_
     intransaction(false)
 {
     open();
-    //statCollectingFileOps = getKINETICSTOREStatsOps(&st.fsStats);
+    //st.reset();
+    if (read_only) {
+    	//k_loop();
+    }
 }
 
 KineticKVStore::KineticKVStore(const KineticKVStore &copyFrom) :
@@ -135,7 +147,6 @@ KineticKVStore::KineticKVStore(const KineticKVStore &copyFrom) :
     memc(NULL), memc_servers(NULL)
 {
     open();
-    //§statCollectingFileOps = getKINETICSTOREStatsOps(&st.fsStats);
 }
 
 void KineticKVStore::reset()
@@ -161,15 +172,18 @@ void KineticKVStore::set(const Item &itm, Callback<mutation_result> &cb)
     assert(!isReadOnly());
     assert(intransaction);
     KineticRequestCallback requestcb;
+    requestcb.setCb = &cb;
 
     // each req will be de-allocated after commit
     KineticRequest *req = new KineticRequest(itm, 1, requestcb, false);
     queueItem(req);
+
 }
 
 void KineticKVStore::get(const std::string &key, uint64_t, uint16_t vb,
                        Callback<GetValue> &cb)
 {
+	//k_loop();
     hrtime_t start = gethrtime();
     GetValue rv;
 
@@ -184,22 +198,32 @@ void KineticKVStore::get(const std::string &key, uint64_t, uint16_t vb,
     							         &flags,
     							         &rc);
     if (rc == MEMCACHED_SUCCESS) {
-      fprintf(stderr, "The key '%s' returned value '%s'.\n", key.c_str(), retrieved_value);
-      Item *it = new Item(key.c_str(), (size_t)key.size(),
+      if (retrieved_value) {
+    	fprintf(stderr, "The key '%s' returned value '%s'.\n", key.c_str(), retrieved_value);
+        Item *it = new Item(key.c_str(), (size_t)key.size(),
                           0, (time_t)0, retrieved_value, value_length,
                           0, -1, vb);
 
-      rv = GetValue(it);
-      free(retrieved_value);
+        rv = GetValue(it);
+        free(retrieved_value);
+      }
+      else {
+      	fprintf(stderr, "The key '%s' returned no value \n", key.c_str());
+        Item *it = new Item(key.c_str(), (size_t)key.size(),
+                            0, (time_t)0, "", value_length,
+                            0, -1, vb);
 
+        rv = GetValue(it);
+      }
       ++epStats.io_num_read;
       epStats.io_read_bytes += value_length;
+      //printf("get:value_length:%d\n", value_length);
       // record stats
-      st.readTimeHisto.add((gethrtime() - start) / 1000);
-      st.readSizeHisto.add(key.length() + rv.getValue()->getNBytes());
+      //st.readTimeHisto.add((gethrtime() - start) / 1000);
+      //st.readSizeHisto.add(key.length() + rv.getValue()->getNBytes());
     }
     else {
-    	++st.numGetFailure;
+    	//++st.numGetFailure;
     	LOG(EXTENSION_LOG_WARNING,
           "Warning: failed to retrieve key value from "
           "key=%s error=%s", key.c_str(), memcached_strerror(memc, rc));
@@ -211,6 +235,7 @@ void KineticKVStore::get(const std::string &key, uint64_t, uint16_t vb,
 
 void KineticKVStore::getMulti(uint16_t vb, vb_bgfetch_queue_t &itms)
 {
+	//k_loop();
     hrtime_t start = gethrtime();
 
     VBucketBGFetchItem *item2fetch;
@@ -247,8 +272,8 @@ void KineticKVStore::getMulti(uint16_t vb, vb_bgfetch_queue_t &itms)
                 ++epStats.io_num_read;
                 epStats.io_read_bytes += value_length;
                 // record stats
-                st.readTimeHisto.add((gethrtime() - start) / 1000);
-                st.readSizeHisto.add((*fitr)->key.size() + value_length);
+                //st.readTimeHisto.add((gethrtime() - start) / 1000);
+                //st.readSizeHisto.add((*fitr)->key.size() + value_length);
             } else {
                 LOG(EXTENSION_LOG_WARNING, "Warning: failed to read database by"
                     " sequence id = %lld, vBucketId = %d "
@@ -258,6 +283,7 @@ void KineticKVStore::getMulti(uint16_t vb, vb_bgfetch_queue_t &itms)
             }
         }
     }
+
 }
 
 void KineticKVStore::del(const Item &itm,
@@ -267,16 +293,17 @@ void KineticKVStore::del(const Item &itm,
     assert(!isReadOnly());
     assert(intransaction);
     KineticRequestCallback requestcb;
-
     requestcb.delCb = &cb;
 
     // each req will be de-allocated after commit
     KineticRequest *req = new KineticRequest(itm, 1, requestcb, true);
     queueItem(req);
+	//k_loop();
 }
 
 bool KineticKVStore::delVBucket(uint16_t vbucket, bool recreate)
 {
+	//k_loop();
     assert(!isReadOnly());
     assert(kineticNotifier);
     RememberingCallback<bool> cb;
@@ -307,33 +334,32 @@ vbucket_map_t KineticKVStore::listPersistedVbuckets()
     const char* keys[] = {"key1"};
     size_t key_lengths[] = {strlen("key1")};
     uint32_t flags;
-
     memcached_return_t rc = memcached_mget_with_vbucket(memc, keys, key_lengths, 1, KINETICSTORE_VBUCKET_STATE);
     if (rc == MEMCACHED_SUCCESS) {
         memcached_return_t error;
-
+        char key[1024];
+        size_t keylen;
+        char *value;
+        size_t value_length;
+        int vstate = 0;
+        //k_loop();
         for(;;) {
-          char key[1024];
-          size_t keylen;
-          char *value;
-          size_t value_length;
-
           value = memcached_fetch(memc, key, &keylen, &value_length, &flags, &error);
           if (value == NULL) {
             break;
           }
-
-          vbucket_state_t state = (vbucket_state_t)atoi(value);
+          memcpy(&vstate, value, value_length);
+          vbucket_state_t state = (vbucket_state_t)vstate;
           vbucket_state vb_state(state, 0, 0);
           uint16_t vbID;
-          sscanf(key, "vb%hu", &vbID);
-
-          /* insert populated state to the array to return to the caller */
+          sscanf(key, "vb_%hu", &vbID);
+          //printf("vid:%d, state:%d\n", vbID, vstate);
+          // insert populated state to the array to return to the caller
           cachedVBStates[vbID] = vb_state;
-          /* update stat */
-          ++st.numLoadedVb;
+          // update stat
+          //++st.numLoadedVb;
 
-          printf("vbid:%u) key:%s, klen:%d, vlen:%ld, flags:%d, value:%s\n", vbID, key, keylen, value_length, flags, value);
+          //fprintf(stdout, "vbid:%u) key:%s, klen:%d, vlen:%ld, flags:%d, value:%s\n", vbID, key, keylen, value_length, flags, value);
           free(value);
           value = NULL;
         }
@@ -344,6 +370,7 @@ vbucket_map_t KineticKVStore::listPersistedVbuckets()
 
 void KineticKVStore::getPersistedStats(std::map<std::string, std::string> &stats)
 {
+	//k_loop();
     char *buffer = NULL;
     std::string fname = dbname + "/stats.json";
     if (access(fname.c_str(), R_OK) == -1) {
@@ -400,6 +427,7 @@ void KineticKVStore::getPersistedStats(std::map<std::string, std::string> &stats
 
 bool KineticKVStore::snapshotVBuckets(const vbucket_map_t &vbstates)
 {
+	//k_loop();
     assert(!isReadOnly());
     bool success = true;
 
@@ -441,6 +469,9 @@ bool KineticKVStore::snapshotVBuckets(const vbucket_map_t &vbstates)
 
 bool KineticKVStore::snapshotStats(const std::map<std::string, std::string> &stats)
 {
+    bool rv = true;
+    /*
+	//k_loop();
     assert(!isReadOnly());
     size_t count = 0;
     size_t size = stats.size();
@@ -459,9 +490,9 @@ bool KineticKVStore::snapshotStats(const std::map<std::string, std::string> &sta
     // TODO: This stats json should be written into the master database. However,
     // we don't support the write synchronization between KineticKVStore in C++ and
     // compaction manager in the erlang side for the master database yet. At this time,
-    // we simply log the engine stats into a separate json file. As part of futhre work,
+    // we simply log the engine stats into a separate json file. As part of futher work,
     // we need to get rid of the tight coupling between those two components.
-    bool rv = true;
+
     std::string next_fname = dbname + "/stats.json.new";
     std::ofstream new_stats;
     new_stats.exceptions (new_stats.failbit | new_stats.badbit);
@@ -499,7 +530,7 @@ bool KineticKVStore::snapshotStats(const std::map<std::string, std::string> &sta
             rv = false;
         }
     }
-
+*/
     return rv;
 }
 
@@ -507,17 +538,11 @@ bool KineticKVStore::setVBucketState(uint16_t vbucketId, vbucket_state &vbstate,
                                    uint32_t vb_change_type, bool newfile,
                                    bool notify)
 {
-	memcached_return_t memcached_set_with_vbucket(memcached_st *ptr, const char *key, size_t key_length,
-	                                 const char *value, size_t value_length,
-	                                 time_t expiration,
-	                                 uint32_t  flags,
-	                                 uint16_t  vbucket);
-
 	char key[20];
 	sprintf(key, "vb_%d", vbucketId);
 	char stateValue;
 	stateValue = (char) vbstate.state;
-
+	//k_loop();
 	memcached_return rc =
 			memcached_set_with_vbucket(memc,
 									   key, strlen(key),
@@ -525,7 +550,7 @@ bool KineticKVStore::setVBucketState(uint16_t vbucketId, vbucket_state &vbstate,
 									   (time_t)0, (uint32_t)0,
 									   KINETICSTORE_VBUCKET_STATE);
 	if (rc != MEMCACHED_SUCCESS) {
-        ++st.numVbSetFailure;
+        //++st.numVbSetFailure;
         return false;
 	}
 
@@ -534,11 +559,13 @@ bool KineticKVStore::setVBucketState(uint16_t vbucketId, vbucket_state &vbstate,
 
 void KineticKVStore::dump(shared_ptr<Callback<GetValue> > cb)
 {
+	//k_loop();
     loadDB(cb, false, NULL, KINETICSTORE_NO_DELETES);
 }
 
 void KineticKVStore::dump(uint16_t vb, shared_ptr<Callback<GetValue> > cb)
 {
+	//k_loop();
     std::vector<uint16_t> vbids;
     vbids.push_back(vb);
     loadDB(cb, false, &vbids);
@@ -546,12 +573,14 @@ void KineticKVStore::dump(uint16_t vb, shared_ptr<Callback<GetValue> > cb)
 
 void KineticKVStore::dumpKeys(const std::vector<uint16_t> &vbids,  shared_ptr<Callback<GetValue> > cb)
 {
-    (void)vbids;
-    loadDB(cb, true, NULL, KINETICSTORE_NO_DELETES);
+	//k_loop();
+    //(void)vbids;
+    loadDB(cb, true, (std::vector<uint16_t>*)&vbids, KINETICSTORE_NO_DELETES);
 }
 
 void KineticKVStore::dumpDeleted(uint16_t vb,  shared_ptr<Callback<GetValue> > cb)
 {
+	//k_loop();
     std::vector<uint16_t> vbids;
     vbids.push_back(vb);
     loadDB(cb, true, &vbids, KINETICSTORE_DELETES_ONLY);
@@ -559,12 +588,14 @@ void KineticKVStore::dumpDeleted(uint16_t vb,  shared_ptr<Callback<GetValue> > c
 
 StorageProperties KineticKVStore::getStorageProperties()
 {
+	//k_loop();
     StorageProperties rv(true, true, true, true);
     return rv;
 }
 
 bool KineticKVStore::commit(void)
 {
+	//k_loop();
     assert(!isReadOnly());
     if (intransaction) {
         intransaction = commit2kineticstore() ? false : true;
@@ -577,10 +608,11 @@ void KineticKVStore::addStats(const std::string &prefix,
                             ADD_STAT add_stat,
                             const void *c)
 {
+	//k_loop();
     const char *prefix_str = prefix.c_str();
 
     /* stats for both read-only and read-write threads */
-    addStat(prefix_str, "backend_type",   "KINETICSTORE",       add_stat, c);
+ /*   addStat(prefix_str, "backend_type",   "KINETICSTORE",       add_stat, c);
     addStat(prefix_str, "open",           st.numOpen,         add_stat, c);
     addStat(prefix_str, "close",          st.numClose,        add_stat, c);
     addStat(prefix_str, "readTime",       st.readTimeHisto,   add_stat, c);
@@ -600,15 +632,17 @@ void KineticKVStore::addStats(const std::string &prefix,
 
         // stats for CouchNotifier
         kineticNotifier->addStats(prefix, add_stat, c);
-    }
+    }*/
 }
 
 void KineticKVStore::addTimingStats(const std::string &prefix,
-                                  ADD_STAT add_stat, const void *c) {
+                                  ADD_STAT add_stat, const void *c)
+{
+	//k_loop();
     if (isReadOnly()) {
         return;
     }
-    const char *prefix_str = prefix.c_str();
+/*    const char *prefix_str = prefix.c_str();
     addStat(prefix_str, "commit",      st.commitHisto,      add_stat, c);
     addStat(prefix_str, "commitRetry", st.commitRetryHisto, add_stat, c);
     addStat(prefix_str, "delete",      st.delTimeHisto,     add_stat, c);
@@ -624,12 +658,14 @@ void KineticKVStore::addTimingStats(const std::string &prefix,
     addStat(prefix_str, "fsReadSize",  st.fsStats.readSizeHisto,  add_stat, c);
     addStat(prefix_str, "fsWriteSize", st.fsStats.writeSizeHisto, add_stat, c);
     addStat(prefix_str, "fsReadSeek",  st.fsStats.readSeekHisto,  add_stat, c);
+*/
 }
 
 template <typename T>
 void KineticKVStore::addStat(const std::string &prefix, const char *stat, T &val,
                            ADD_STAT add_stat, const void *c)
 {
+	//k_loop();
     std::stringstream fullstat;
     fullstat << prefix << ":" << stat;
     add_casted_stat(fullstat.str().c_str(), val, add_stat, c);
@@ -637,6 +673,7 @@ void KineticKVStore::addStat(const std::string &prefix, const char *stat, T &val
 
 void KineticKVStore::optimizeWrites(std::vector<queued_item> &items)
 {
+	//k_loop();
     assert(!isReadOnly());
     if (items.empty()) {
         return;
@@ -650,12 +687,27 @@ void KineticKVStore::loadDB(shared_ptr<Callback<GetValue> > cb, bool keysOnly,
                           std::vector<uint16_t> *vbids,
                           kineticstore_options options)
 {
+	//k_loop();
     hrtime_t start = gethrtime();
-    std::vector< std::pair<uint16_t, uint64_t> > vbuckets;
-    std::vector< std::pair<uint16_t, uint64_t> > replicaVbuckets;
+    std::vector<uint16_t> vbuckets;
     bool loadingData = !vbids && !keysOnly;
     GetValue rv;
 
+    if (loadingData && cachedVBStates.empty()) {
+        listPersistedVbuckets();
+    }
+
+    vbucket_map_t::iterator itor = cachedVBStates.begin();
+    for (; itor != cachedVBStates.end(); ++itor) {
+        uint16_t state = itor->second.state;
+        if (state == vbucket_state_active || state == vbucket_state_replica) {
+        	vbuckets.push_back(itor->first);
+        }
+    }
+    if ( !vbids ) {
+    	//k_loop();
+    	vbids = &vbuckets;
+    }
     if (vbids) {
     	char *value;
     	size_t value_length;
@@ -663,8 +715,11 @@ void KineticKVStore::loadDB(shared_ptr<Callback<GetValue> > cb, bool keysOnly,
     	if (keysOnly) {
     		keys[0] = "keys_only";
     	}
+
     	size_t key_lengths[] = {strlen(keys[0])};
     	uint32_t flags;
+		char key[1024];
+		size_t keylen;
         std::vector<uint16_t>::iterator vbidItr;
         for (vbidItr = vbids->begin(); vbidItr != vbids->end(); vbidItr++) {
         	//retrive items under *vbidIter
@@ -673,15 +728,15 @@ void KineticKVStore::loadDB(shared_ptr<Callback<GetValue> > cb, bool keysOnly,
         	 * 2. key only
         	 * 3. delete only?
         	 */
-
+        	int vbid = *vbidItr;
             memcached_return_t rc = memcached_mget_with_vbucket(memc, keys, key_lengths, 1, *vbidItr);
             if (rc == MEMCACHED_SUCCESS) {
             	memcached_return_t error;
             }
-
+			if (*vbidItr == 1) {
+				//k_loop();
+			}
 			for(;;) {
-				char key[1024];
-				size_t keylen;
 			    memcached_return_t rc;
 
 				char* retrieved_value = memcached_fetch(memc, key, &keylen, &value_length, &flags, &rc);
@@ -692,15 +747,14 @@ void KineticKVStore::loadDB(shared_ptr<Callback<GetValue> > cb, bool keysOnly,
 				Item *it = new Item(key, keylen,
 									  0, (time_t)0, retrieved_value, value_length,
 									  0, -1, *vbidItr);
-				rv = GetValue(it);
-				free(retrieved_value);
+
 
 				++epStats.io_num_read;
 				epStats.io_read_bytes += value_length;
 				// record stats
-				st.readTimeHisto.add((gethrtime() - start) / 1000);
-				st.readSizeHisto.add(keylen + rv.getValue()->getNBytes());
-
+				//st.readTimeHisto.add((gethrtime() - start) / 1000);
+				//st.readSizeHisto.add(keylen + rv.getValue()->getNBytes());
+				rv = GetValue(it);
 				rv.setStatus(kineticErr2EngineErr(rc));
 				cb->callback(rv);
 
@@ -715,7 +769,8 @@ void KineticKVStore::open()
 {
     // TODO intransaction, is it needed?
     intransaction = false;
-    if (!isReadOnly()) {
+    if (!isReadOnly() && kineticNotifier == NULL) {
+    	//k_loop();
         kineticNotifier = KineticNotifier::create(epStats, configuration);
     }
 
@@ -723,8 +778,9 @@ void KineticKVStore::open()
     	 memcached_return rc;
 
     	 memc = memcached_create(NULL);
-    	 memc_servers = memcached_server_list_append(NULL, "127.0.0.1", 11210, &rc);
-    	 rc = memcached_server_push(memc, memc_servers);
+    	 memc_servers = memcached_server_list_append(NULL, "127.0.0.1", SERVER_PORT, &rc);
+    	 memcached_server_push(memc, memc_servers);
+    	 rc = memcached_behavior_set(memc, MEMCACHED_BEHAVIOR_BINARY_PROTOCOL, 1);
     	 if (MEMCACHED_SUCCESS != rc) {
              std::stringstream ss;
              ss << "Fail to create kinetic client";
@@ -745,6 +801,7 @@ void KineticKVStore::close()
         memc = NULL;
     }
     kineticNotifier = NULL;
+	//k_loop();
 }
 
 /**
@@ -786,17 +843,20 @@ bool KineticKVStore::commit2kineticstore(void)
         epStats.io_write_bytes += keySize + dataSize;
 
         if (req->isDelete()) {
+        	//k_loop();
         	rc = memcached_delete_with_vbucket(memc, req->getKey().c_str(), keySize, 0, req->getVBucketId());
         	if (rc == MEMCACHED_SUCCESS) {
-        		  st.delTimeHisto.add(req->getDelta() / 1000);
+        		  //st.delTimeHisto.add(req->getDelta() / 1000);
         	}
         	else {
         		  fprintf(stderr, "Couldn't delete key: %s\n", memcached_strerror(memc, rc));
-        	  	  ++st.numDelFailure;
+        	  	  //++st.numDelFailure;
         	}
+        	//TODO: what if getDelCallback() is empty?
             int rv = getMutationStatus(rc);
             req->getDelCallback()->callback(rv);
         } else {
+        	//k_loop();
         	rc = memcached_set_with_vbucket(memc,
         								    req->getKey().c_str(),
         								    keySize,
@@ -806,14 +866,19 @@ bool KineticKVStore::commit2kineticstore(void)
         								    (uint32_t)0,
         								    req->getVBucketId());
         	if (rc == MEMCACHED_SUCCESS) {
-        	    fprintf(stderr, "Key stored successfully\n");
-                st.writeTimeHisto.add(req->getDelta() / 1000);
-                st.writeSizeHisto.add(dataSize + keySize);
+        	   // fprintf(stderr, "Key stored successfully\n");
+               // st.writeTimeHisto.add(req->getDelta() / 1000);
+               // st.writeSizeHisto.add(dataSize + keySize);
         	}
         	else {
-        		  ++st.numSetFailure;
+        		//  ++st.numSetFailure;
         	    fprintf(stderr, "Couldn't store key: %s\n", memcached_strerror(memc, rc));
         	}
+        	//k_loop();
+            int rv = getMutationStatus(rc);
+            int64_t newItemId = 0;
+            mutation_result p(rv, newItemId);
+            req->getSetCallback()->callback(p);
         }
     }
 
@@ -825,10 +890,12 @@ bool KineticKVStore::commit2kineticstore(void)
 
 void KineticKVStore::queueItem(KineticRequest *req)
 {
+	//k_loop();
     if (pendingCommitCnt &&
         pendingReqsQ.front()->getVBucketId() != req->getVBucketId()) {
         // got new request for a different vb, commit pending
         // pending requests of the current vb firt
+    	//k_loop();
     	commit2kineticstore();
     }
     pendingReqsQ.push_back(req);
@@ -838,6 +905,7 @@ void KineticKVStore::queueItem(KineticRequest *req)
 void KineticKVStore::commitCallback(KineticRequest **committedReqs, int numReqs,
                                   memcached_return_t errCode)
 {
+	//k_loop();
     for (int index = 0; index < numReqs; index++) {
         size_t dataSize = committedReqs[index]->getNBytes();
         size_t keySize = committedReqs[index]->getKey().length();
@@ -848,20 +916,20 @@ void KineticKVStore::commitCallback(KineticRequest **committedReqs, int numReqs,
         if (committedReqs[index]->isDelete()) {
             int rv = getMutationStatus(errCode);
             if (errCode) {
-                ++st.numDelFailure;
+               // ++st.numDelFailure;
             } else {
-                st.delTimeHisto.add(committedReqs[index]->getDelta() / 1000);
+               // st.delTimeHisto.add(committedReqs[index]->getDelta() / 1000);
             }
             committedReqs[index]->getDelCallback()->callback(rv);
         } else {
             int rv = getMutationStatus(errCode);
             int64_t newItemId = 0; //committedReqs[index]->getDbDocInfo()->db_seq;
             if (errCode) {
-                ++st.numSetFailure;
+             //   ++st.numSetFailure;
                 newItemId = 0;
             } else {
-                st.writeTimeHisto.add(committedReqs[index]->getDelta() / 1000);
-                st.writeSizeHisto.add(dataSize + keySize);
+             //   st.writeTimeHisto.add(committedReqs[index]->getDelta() / 1000);
+             //   st.writeSizeHisto.add(dataSize + keySize);
             }
             mutation_result p(rv, newItemId);
             committedReqs[index]->getSetCallback()->callback(p);
@@ -872,6 +940,7 @@ void KineticKVStore::commitCallback(KineticRequest **committedReqs, int numReqs,
 
 ENGINE_ERROR_CODE KineticKVStore::kineticErr2EngineErr(memcached_return_t errCode)
 {
+	//k_loop();
     switch (errCode) {
     case MEMCACHED_SUCCESS:
         return ENGINE_SUCCESS;
@@ -879,6 +948,7 @@ ENGINE_ERROR_CODE KineticKVStore::kineticErr2EngineErr(memcached_return_t errCod
         return ENGINE_ENOMEM;
     case MEMCACHED_NOTFOUND:
     case MEMCACHED_BAD_KEY_PROVIDED:
+    	//k_loop();
         return ENGINE_KEY_ENOENT;
     default:
         // same as the general error return code of
@@ -889,11 +959,15 @@ ENGINE_ERROR_CODE KineticKVStore::kineticErr2EngineErr(memcached_return_t errCod
 
 bool KineticKVStore::getEstimatedItemCount(size_t &items)
 {
+	//k_loop();
     items = 0;
 
     const char* keys[] = {"items_count"};
     size_t key_lengths[] = {strlen(keys[0])};
 
+    //if (cachedVBStates.empty()) {
+    //	listPersistedVbuckets();
+    //}
     vbucket_map_t::iterator itor = cachedVBStates.begin();
     for (; itor != cachedVBStates.end(); ++itor) {
         uint16_t vbucket = itor->first;
@@ -921,11 +995,13 @@ bool KineticKVStore::getEstimatedItemCount(size_t &items)
     return true;
 }
 
-size_t KineticKVStore::getNumPersistedDeletes(uint16_t vbid) {
-    std::map<uint16_t, size_t>::iterator itr = cachedDeleteCount.find(vbid);
+size_t KineticKVStore::getNumPersistedDeletes(uint16_t vbid)
+{
+	//k_loop();
+    /*std::map<uint16_t, size_t>::iterator itr = cachedDeleteCount.find(vbid);
     if (itr != cachedDeleteCount.end()) {
         return itr->second;
-    }
+    }*/
     return 0;
 }
 

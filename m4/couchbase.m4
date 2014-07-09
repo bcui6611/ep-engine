@@ -52,14 +52,14 @@ AC_DEFUN([COUCHBASE_GENERIC_COMPILER], [
 
   GCC_NO_WERROR="-Wno-error"
   GCC_WERROR="-Werror"
-  GCC_C_OPTIMIZE="-O3"
-  GCC_CXX_OPTIMIZE="-O3"
+  GCC_C_OPTIMIZE="-O0"
+  GCC_CXX_OPTIMIZE="-O0"
   GCC_C_DEBUG="-O0 -g3"
   GCC_CXX_DEBUG="-O0 -g3"
   GCC_VISIBILITY="-DHAVE_VISIBILITY=1 -fvisibility=hidden"
-  GCC_CPPFLAGS="-pipe"
-  GCC_CFLAGS="-std=gnu99"
-  GCC_CXXFLAGS=""
+  GCC_CPPFLAGS="-pipe -g"
+  GCC_CFLAGS="-std=gnu99 -g"
+  GCC_CXXFLAGS="-g"
   GCC_C89=-std=c89
   GCC_C99=-std=gnu99
   GCC_LDFLAGS=""

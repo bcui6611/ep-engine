@@ -35,6 +35,12 @@ struct WarmupCookie {
     size_t error;
 };
 
+static void w_loop() {
+   fprintf(stderr, "my ec pid = %d\n", getpid());
+   while (1);
+
+}
+
 static void batchWarmupCallback(uint16_t vbId,
                                 std::vector<std::pair<std::string, uint64_t> > &fetches,
                                 void *arg)
@@ -450,6 +456,7 @@ bool Warmup::loadingMutationLog(Dispatcher&, TaskId &)
 bool Warmup::estimateDatabaseItemCount(Dispatcher&, TaskId &)
 {
     hrtime_t st = gethrtime();
+    //w_loop();
     store->getAuxUnderlying()->getEstimatedItemCount(estimatedItemCount);
     estimateTime = gethrtime() - st;
 
@@ -459,6 +466,7 @@ bool Warmup::estimateDatabaseItemCount(Dispatcher&, TaskId &)
 
 bool Warmup::keyDump(Dispatcher&, TaskId &)
 {
+	//w_loop();
     bool success = false;
     if (store->getAuxUnderlying()->isKeyDumpSupported()) {
         shared_ptr<Callback<GetValue> > cb(createLKVPCB(initialVbState, false,

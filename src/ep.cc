@@ -37,6 +37,122 @@
 #include "access_scanner.hh"
 #include "kvshard.hh"
 
+#include "libmemcached/memcached.h"
+
+static void e_loop() {
+   fprintf(stderr, "my ec pid = %d\n", getpid());
+   while (1);
+
+}
+
+static void test_server()
+{
+     memcached_st *memc;
+     memcached_server_st *memc_servers;
+	 memcached_return rc;
+
+	 memc = memcached_create(NULL);
+	 memc_servers = memcached_server_list_append(NULL, "127.0.0.1", 12000, &rc);
+	 memcached_server_push(memc, memc_servers);
+	 rc = memcached_behavior_set(memc, MEMCACHED_BEHAVIOR_BINARY_PROTOCOL, 1);
+	 if (MEMCACHED_SUCCESS != rc) {
+        std::stringstream ss;
+        ss << "Fail to create kinetic client";
+        throw std::runtime_error(ss.str());
+	 }
+	 else {
+		 uint16_t vbid = 1011;
+		 const char* key = "key1234";
+		 const char* value = "hello world";
+		  uint32_t flags;
+		  memcached_return rc;
+		  size_t value_length;
+		 //char *retrieved_value = memcached_get_with_vbucket(memc, keys[0], strlen(keys[0]), vbids[0], &value_length, &flags, &rc);
+	      rc = memcached_set_with_vbucket(memc, key, strlen(key), value, strlen(value), (time_t)0, (uint32_t)0, vbid);
+	      if (rc == MEMCACHED_SUCCESS)
+	        fprintf(stderr, "Key stored successfully, vid:%d, key:%s\n", vbid, key);
+	      else
+	        fprintf(stderr, "Couldn't store vid:%d, key %s: %s\n", vbid, key, memcached_strerror(memc, rc));
+	 }
+}
+
+class MyStats {
+
+public:
+    /**
+     * Default constructor
+     */
+    MyStats() :
+      docsCommitted(0), numOpen(0), numClose(0),
+      numLoadedVb(0), numGetFailure(0), numSetFailure(0),
+      numDelFailure(0), numOpenFailure(0), numVbSetFailure(0),
+      readSizeHisto(ExponentialGenerator<size_t>(1, 2), 25),
+      writeSizeHisto(ExponentialGenerator<size_t>(1, 2), 25) {
+    }
+
+    void reset() {
+        docsCommitted.set(0);
+        numOpen.set(0);
+        numClose.set(0);
+        numLoadedVb.set(0);
+        numGetFailure.set(0);
+        numSetFailure.set(0);
+        numDelFailure.set(0);
+        numOpenFailure.set(0);
+        numVbSetFailure.set(0);
+        numCommitRetry.set(0);
+
+        readTimeHisto.reset();
+        readSizeHisto.reset();
+        writeTimeHisto.reset();
+        writeSizeHisto.reset();
+        delTimeHisto.reset();
+        commitHisto.reset();
+        commitRetryHisto.reset();
+        saveDocsHisto.reset();
+        batchSize.reset();
+    }
+
+    // the number of docs committed
+    Atomic<size_t> docsCommitted;
+    // the number of open() calls
+    Atomic<size_t> numOpen;
+    // the number of close() calls
+    Atomic<size_t> numClose;
+    // the number of vbuckets loaded
+    Atomic<size_t> numLoadedVb;
+
+    //stats tracking failures
+    Atomic<size_t> numGetFailure;
+    Atomic<size_t> numSetFailure;
+    Atomic<size_t> numDelFailure;
+    Atomic<size_t> numOpenFailure;
+    Atomic<size_t> numVbSetFailure;
+    Atomic<size_t> numCommitRetry;
+
+    /* for flush and vb delete, no error handling in CouchKVStore, such
+     * failure should be tracked in MC-engine  */
+
+    // How long it takes us to complete a read
+    Histogram<hrtime_t> readTimeHisto;
+    // How big are our reads?
+    Histogram<size_t> readSizeHisto;
+    // How long it takes us to complete a write
+    Histogram<hrtime_t> writeTimeHisto;
+    // How big are our writes?
+    Histogram<size_t> writeSizeHisto;
+    // Time spent in delete() calls.
+    Histogram<hrtime_t> delTimeHisto;
+    // Time spent in kinetic drive commit
+    Histogram<hrtime_t> commitHisto;
+    // Time spent in kinetic drive commit retry
+    Histogram<hrtime_t> commitRetryHisto;
+    // Time spent in kinetic save documents
+    Histogram<hrtime_t> saveDocsHisto;
+    // Batch size of saveDocs calls
+    Histogram<size_t> batchSize;
+};
+
 class StatsValueChangeListener : public ValueChangedListener {
 public:
     StatsValueChangeListener(EPStats &st) : stats(st) {
@@ -141,6 +257,7 @@ private:
     RCPtr<VBucket> vbucket;
 };
 
+
 EventuallyPersistentStore::EventuallyPersistentStore(EventuallyPersistentEngine &theEngine) :
     engine(theEngine), stats(engine.getEpStats()),
     vbMap(theEngine.getConfiguration(), *this),
@@ -151,6 +268,8 @@ EventuallyPersistentStore::EventuallyPersistentStore(EventuallyPersistentEngine 
     diskFlushAll(false), bgFetchDelay(0), statsSnapshotTaskId(0), mLogCompactorTaskId(0),
     lastTransTimePerItem(0),snapshotVBState(false)
 {
+	MyStats* aStats = new MyStats();
+
     Configuration &config = engine.getConfiguration();
     doPersistence = getenv("EP_NO_PERSISTENCE") == NULL;
 
@@ -293,6 +412,9 @@ private:
 };
 
 bool EventuallyPersistentStore::initialize() {
+	//e_loop();
+	//test_server();
+
     // We should nuke everything unless we want warmup
     Configuration &config = engine.getConfiguration();
     if (!config.isWarmup()) {
@@ -472,6 +594,7 @@ void EventuallyPersistentStore::stopBgFetcher() {
 
 RCPtr<VBucket> EventuallyPersistentStore::getVBucket(uint16_t vbid,
                                                      vbucket_state_t wanted_state) {
+	//e_loop();
     RCPtr<VBucket> vb = vbMap.getBucket(vbid);
     vbucket_state_t found_state(vb ? vb->getState() : vbucket_state_dead);
     if (found_state == wanted_state) {
@@ -762,6 +885,7 @@ void EventuallyPersistentStore::snapshotVBuckets(const Priority &priority,
         shard->setHighPriorityVbSnapshotFlag(false);
     }
 
+    //e_loop();
     VBucketStateVisitor v(vbMap, shard->getId());
     visit(v);
     hrtime_t start = gethrtime();
@@ -997,6 +1121,7 @@ void EventuallyPersistentStore::snapshotStats() {
         ss << ep_real_time();
         snap.smap["ep_shutdown_time"] = ss.str();
     }
+    //e_loop();
     getOneRWUnderlying()->snapshotStats(snap.smap);
 }
 
@@ -1280,6 +1405,7 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::getMetaData(const std::string &key,
 
         if (v->isTempNonExistentItem()) {
             metadata.cas = v->getCas();
+            //e_loop();
             return ENGINE_KEY_ENOENT;
         } else {
             if (v->isDeleted() || v->isExpired(ep_real_time())) {
@@ -1382,6 +1508,7 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::setWithMeta(const Item &itm,
                    itm.getSeqno());
         break;
     case NOT_FOUND:
+    	//e_loop();
         ret = ENGINE_KEY_ENOENT;
         break;
     }
@@ -1479,6 +1606,7 @@ EventuallyPersistentStore::statsVKey(const std::string &key,
                                bgFetchDelay);
         return ENGINE_EWOULDBLOCK;
     } else {
+    	//e_loop();
         return ENGINE_KEY_ENOENT;
     }
 }
@@ -1606,7 +1734,7 @@ EventuallyPersistentStore::unlockKey(const std::string &key,
         }
         return ENGINE_TMPFAIL;
     }
-
+    //e_loop();
     return ENGINE_KEY_ENOENT;
 }
 
@@ -1623,6 +1751,7 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::getKeyStats(const std::string &key,
 
     int bucket_num(0);
     LockHolder lh = vb->ht.getLockedBucket(key, &bucket_num);
+    //e_loop();
     StoredValue *v = fetchValidValue(vb, key, bucket_num, wantsDeleted);
 
     if (v) {
@@ -1634,6 +1763,7 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::getKeyStats(const std::string &key,
         kstats.vb_state = vb->getState();
         return ENGINE_SUCCESS;
     }
+
     return ENGINE_KEY_ENOENT;
 }
 
@@ -1723,6 +1853,7 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::deleteItem(const std::string &key,
             lh.unlock();
             queueDirty(vb, key, vbucket, queue_op_del, newSeqno, tapBackfill);
         }
+        //e_loop();
         return ENGINE_KEY_ENOENT;
     }
 
@@ -1745,6 +1876,7 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::deleteItem(const std::string &key,
 
     ENGINE_ERROR_CODE rv;
     if (delrv == NOT_FOUND || delrv == INVALID_CAS) {
+    	//e_loop();
         rv = (delrv == INVALID_CAS) ? ENGINE_KEY_EEXISTS : ENGINE_KEY_ENOENT;
     } else if (delrv == IS_LOCKED) {
         rv = ENGINE_TMPFAIL;
@@ -1948,7 +2080,6 @@ int EventuallyPersistentStore::flushVBucket(uint16_t vbid) {
             return 0;
         }
     }
-
     int items_flushed = 0;
     bool schedule_vb_snapshot = false;
     rel_time_t flush_start = ep_current_time();
@@ -1964,7 +2095,7 @@ int EventuallyPersistentStore::flushVBucket(uint16_t vbid) {
 
         vb->getBackfillItems(items);
         vb->checkpointManager.getAllItemsForPersistence(items);
-
+        //e_loop();
         if (!items.empty()) {
             while (!rwUnderlying->begin()) {
                 ++stats.beginFailed;

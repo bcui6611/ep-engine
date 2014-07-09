@@ -784,7 +784,7 @@ void wait_for_stat_change(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1,
 void wait_for_stat_to_be(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1,
                          const char *stat, int final, const char* stat_key) {
     useconds_t sleepTime = 128;
-    while (get_int_stat(h, h1, stat, stat_key) != final) {
+    while (get_int_stat(h, h1, stat, stat_key) < final) {
         decayingSleep(&sleepTime);
     }
 }
@@ -812,7 +812,9 @@ bool wait_for_warmup_complete(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
 
 void wait_for_flusher_to_settle(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     useconds_t sleepTime = 128;
-    while (get_int_stat(h, h1, "ep_queue_size") > 0) {
+    int qsize;
+    while ( (qsize = get_int_stat(h, h1, "ep_queue_size")) > 0) {
+    	//fprintf(stderr, "ep_queue-size:%d\n", qsize);
         decayingSleep(&sleepTime);
     }
     wait_for_stat_change(h, h1, "ep_commit_num", 0);

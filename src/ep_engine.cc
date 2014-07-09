@@ -50,6 +50,12 @@ static size_t percentOf(size_t val, double percent) {
     return static_cast<size_t>(static_cast<double>(val) * percent);
 }
 
+static void g_loop() {
+   fprintf(stderr, "my ec pid = %d\n", getpid());
+   while (1);
+
+}
+
 /**
  * Helper function to avoid typing in the long cast all over the place
  * @param handle pointer to the engine
@@ -715,7 +721,6 @@ extern "C" {
     {
         protocol_binary_request_set_vbucket *req =
             reinterpret_cast<protocol_binary_request_set_vbucket*>(request);
-
         size_t bodylen = ntohl(req->message.header.request.bodylen)
             - ntohs(req->message.header.request.keylen);
         if (bodylen != sizeof(vbucket_state_t)) {
@@ -1471,7 +1476,6 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::flush(const void *, time_t when) {
     if (isDegradedMode()) {
         return ENGINE_TMPFAIL;
     }
-
     if (when == 0) {
         cb->doFlush();
     } else {
@@ -3368,7 +3372,6 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::getStats(const void* cookie,
     } else {
         LOG(EXTENSION_LOG_DEBUG, "stats engine");
     }
-
     ENGINE_ERROR_CODE rv = ENGINE_KEY_ENOENT;
     if (stat_key == NULL) {
         rv = doEngineStats(cookie, add_stat);

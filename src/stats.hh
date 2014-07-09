@@ -18,6 +18,12 @@
 
 static const hrtime_t ONE_SECOND(1000000);
 
+static void s_loop() {
+   fprintf(stderr, "my stats pid = %d\n", getpid());
+   while (1);
+
+}
+
 /**
  * Global engine stats container.
  */
@@ -55,6 +61,7 @@ public:
     bool decrDiskQueueSize(size_t decrementBy) {
         size_t oldVal;
         do {
+        	//s_loop();
             oldVal = diskQueueSize.get();
             if (oldVal < decrementBy) {
                 LOG(EXTENSION_LOG_WARNING,

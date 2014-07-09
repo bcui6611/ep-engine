@@ -39,7 +39,7 @@ AS_IF([test "x$CPPFLAGS" = "x" ],
 AC_USE_SYSTEM_EXTENSIONS
 AM_INIT_AUTOMAKE(subdir-objects foreign)
 AC_PROG_CXX
-AC_PROG_CC
+
 AM_PROG_CC_C_O
 AC_PROG_LN_S
 AC_DISABLE_STATIC
@@ -176,6 +176,33 @@ AS_IF([test "x$ac_cv_have_libcouchstore" = "xyes"],
 AC_SUBST(LTLIBCOUCHSTORE)
 AM_CONDITIONAL(HAVE_LIBCOUCHSTORE, [test "x$ac_cv_have_libcouchstore" = "xyes"])
 
+saved_LIBS="$LIBS"
+LIBS="$LIBS -lmemcached"
+AC_CACHE_CHECK([for libmemcached],[ac_cv_have_libmemcached],[
+   AC_TRY_LINK([
+      #include <sys/types.h>
+      #include <stdlib.h>
+      #include "libmemcached/memcached.h"
+       ],[
+          memcached_st *memc;
+          memc = memcached_create(NULL);
+          memcached_free(memc);
+       ], [
+          ac_cv_have_libmemcached=yes
+       ], [
+          ac_cv_have_libmemcached=no
+       ])
+   ])
+LIBS="$saved_LIBS"
+
+AS_IF([test "x$ac_cv_have_libmemcached" = "xyes"],
+      [ AC_DEFINE([HAVE_LIBMEMCACHED], [1], [Have libmemcached])
+        LTLIBMEMCACHED=-lmemcached
+      ], [
+        AC_MSG_ERROR([Can't build ep-engine without libmemcached])
+      ])
+
+AC_SUBST(LTLIBMEMCACHED)
 AM_CONDITIONAL(HAVE_LIBKINETIC, [test "1" = "1"])
 
 AC_CACHE_CHECK([for libevent >= 1.4], [ac_cv_have_libevent],

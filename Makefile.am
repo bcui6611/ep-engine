@@ -149,15 +149,14 @@ libkinetic_kvstore_la_SOURCES = src/kvstore.hh
 if HAVE_LIBKINETIC
 libkinetic_kvstore_la_SOURCES += src/kinetic-kvstore/kinetic-kvstore.cc    \
                                  src/kinetic-kvstore/kinetic-kvstore.hh    \
-                                 src/kinetic-kvstore/kinetic-stats.cc      \
-                                 src/kinetic-kvstore/kinetic-stats.hh      \
                                  src/kinetic-kvstore/kinetic-notifier.cc   \
                                  src/kinetic-kvstore/kinetic-notifier.hhx`
 
-libkinetic_kvstore_la_LIBADD = $(LTLIBKINETIC)
+libkinetic_kvstore_la_LIBADD = $(LTLIBMEMCACHED)
 else
 libkinetic_kvstore_la_SOURCES += src/kinetic-kvstore/kinetic-kvstore-dummy.hh \
                                  src/kinetic-kvstore/kinetic-kvstore-dummy.cc
+
 endif
 
 libkinetic_kvstore_la_CPPFLAGS = -I$(top_srcdir)/src/kinetic-kvstore $(AM_CPPFLAGS)
@@ -175,7 +174,7 @@ ep_la_DEPENDENCIES = libkvstore.la \
                libobjectregistry.la libconfiguration.la \
                libcouch-kvstore.la \
                libkinetic-kvstore.la
-ep_testsuite_la_LIBADD =libobjectregistry.la $(LTLIBEVENT)
+ep_testsuite_la_LIBADD =libobjectregistry.la $(LTLIBEVENT) $(LTLIBMEMCACHED)
 ep_testsuite_la_DEPENDENCIES = libobjectregistry.la
 
 check_PROGRAMS=\
@@ -421,7 +420,7 @@ ${PYTHON_TOOLS}: wrapper/wrapper
 BUILT_SOURCES += ${PYTHON_TOOLS}
 CLEANFILES+= ${PYTHON_TOOLS}
 
-TEST_TIMEOUT=60
+TEST_TIMEOUT=0
 
 VALGRIND=valgrind
 VALGRIND_OPTIONS=--log-file=valgrind.log --tool=Memcheck --num-callers=50 \
